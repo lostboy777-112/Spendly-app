@@ -22,7 +22,9 @@
     position:sticky; top:0; z-index:10; background:var(--bg);
     padding:14px 16px 8px; border-bottom:1px solid var(--line);
   }
-  h1{font-size:20px; margin:0 0 8px}
+  h1{font-size:20px; margin:0}
+  .title-row{display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px}
+  [hidden]{display:none !important}
   .monthbar{display:flex; align-items:center; justify-content:space-between; gap:8px}
   .monthbar .label{font-size:18px; font-weight:700}
   button{
@@ -96,14 +98,17 @@
 </head>
 <body>
 <header>
-  <h1>💰 Spendly 家計簿</h1>
-  <div class="monthbar">
+  <div class="title-row">
+    <h1>💰 Spendly 家計簿</h1>
+    <button type="button" id="settingsBtn" aria-label="設定">⚙ 設定</button>
+  </div>
+  <div class="monthbar" id="monthBar">
     <button id="prevMonth" aria-label="前の月">‹ 前月</button>
     <div class="label" id="monthLabel">----年--月</div>
     <button id="nextMonth" aria-label="次の月">次月 ›</button>
   </div>
 </header>
-<main>
+<main id="homeMain">
   <section class="card">
     <div class="summary">
       <div><div class="k">収入</div><div class="v in" id="sumIn">¥0</div></div>
@@ -123,7 +128,9 @@
     <h2>記録一覧</h2>
     <div id="list"><div class="empty">読み込み中…</div></div>
   </section>
+</main>
 
+<main id="settingsMain" hidden>
   <section class="card">
     <h2>スプレッドシート連携</h2>
     <p class="note">正本はGoogleスプレッドシート「Spendly家計簿」です。アプリは開くたびにシートを読み直します。アプリでの追加・編集・削除はキューに積まれ、送信できるときにシートへ送られます。URLと合言葉は、この端末の中だけに保存されます。</p>

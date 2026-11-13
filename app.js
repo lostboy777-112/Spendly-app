@@ -266,6 +266,32 @@
     setTimeout(function () { el.classList.remove("show"); }, 2400);
   }
 
+  // ===== 画面切り替え（ホーム／設定） =====
+  let inSettings = false;
+  function showSettings() {
+    inSettings = true;
+    $("homeMain").hidden = true;
+    $("monthBar").hidden = true;
+    $("settingsMain").hidden = false;
+    $("settingsBtn").textContent = "‹ 戻る";
+    fillSyncForm();
+    window.scrollTo(0, 0);
+  }
+  function showHome() {
+    readSyncForm();
+    inSettings = false;
+    $("settingsMain").hidden = true;
+    $("homeMain").hidden = false;
+    $("monthBar").hidden = false;
+    $("settingsBtn").textContent = "⚙ 設定";
+    render();
+    syncNow();
+    window.scrollTo(0, 0);
+  }
+  $("settingsBtn").addEventListener("click", function () {
+    if (inSettings) showHome(); else showSettings();
+  });
+
   // ===== イベント =====
   $("prevMonth").addEventListener("click", function () { viewMonth = shiftMonth(viewMonth, -1); render(); });
   $("nextMonth").addEventListener("click", function () { viewMonth = shiftMonth(viewMonth, 1); render(); });
