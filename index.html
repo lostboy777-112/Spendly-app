@@ -51,6 +51,7 @@
   .badge{ display:inline-block; font-size:10.5px; padding:1px 7px; border-radius:99px;
     background:var(--veda-soft); color:var(--veda); font-weight:700; vertical-align:1px; margin-left:6px; }
   .badge.local{ background:var(--accent-soft); color:var(--accent); }
+  .badge.dirty{ background:var(--line); color:var(--muted); }
   .dayhead{ font-size:13px; color:var(--muted); font-weight:700; margin:14px 2px 2px; }
   .iconbtn{ border:none; background:none; color:var(--muted); font-size:13px; cursor:pointer;
     padding:6px 4px; min-height:32px; }
@@ -79,13 +80,16 @@
   .small{ font-size:12px; color:var(--muted); }
   .row2{ display:flex; gap:8px; } .row2 .btn{ flex:1; }
   .empty{ text-align:center; color:var(--muted); padding:22px 0; font-size:14px; }
+  .setrow input{ width:100%; font-size:14px; padding:11px; margin-bottom:8px;
+    border:1px solid var(--line); border-radius:10px; background:var(--card); color:var(--text); }
+  #syncStatus{ font-size:13px; margin:8px 0 10px; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
     <h1>Spendly</h1>
-    <span class="sub">家計簿｜データはすべてこの端末に保存されます</span>
+    <span class="sub">家計簿｜記録はまず端末に保存し、スプレッドシートへ自動同期します</span>
   </header>
 
   <section class="card">
@@ -112,8 +116,22 @@
   </section>
 
   <section class="card">
+    <h2>同期設定（スプレッドシート「Spendly家計簿」）</h2>
+    <p class="small">Apps Scriptの受け口URLと合言葉を設定すると、記録が自動でシートへ送られ、シート側の変更（ヴェーダ記録など）も取り込まれます。未送信の記録は端末に残り、次に開いたとき・電波が戻ったときに送り直します。URLと合言葉はこの端末にのみ保存されます。</p>
+    <div class="setrow">
+      <input type="url" id="cfgEndpoint" placeholder="受け口URL（https://script.google.com/macros/s/…/exec）">
+      <input type="text" id="cfgToken" placeholder="合言葉（TOKEN）" autocomplete="off">
+    </div>
+    <div id="syncStatus">同期：未設定</div>
+    <div class="row2">
+      <button class="btn" id="cfgSave">設定を保存</button>
+      <button class="btn" id="syncNowBtn">今すぐ同期</button>
+    </div>
+  </section>
+
+  <section class="card">
     <h2>データ管理</h2>
-    <p class="small">データはすべてこのブラウザ（localStorage）にのみ保存され、サーバには送信されません。機種変更やブラウザのデータ消去に備えて、ときどき書き出してください。「ヴェーダ記録」は、ヴェーダから渡されるJSONファイルを「読み込む」で取り込むデータです（既存の記録と重複するものは自動でスキップされます）。</p>
+    <p class="small">自分の入力データはこのブラウザ（localStorage）にも保存されます。機種変更やブラウザのデータ消去に備えて、ときどき書き出してください。「読み込む」はJSONファイルの取り込みです（既存の記録と重複するものは自動でスキップされます）。「ヴェーダ記録」は、ヴェーダから渡されるJSONファイルを取り込んだ記録です（同期設定をすればシート経由でも自動で届きます）。</p>
     <div class="row2">
       <button class="btn" id="exportBtn">自分のデータを書き出す</button>
       <button class="btn" id="importBtn">読み込む</button>
@@ -148,58 +166,72 @@
 </dialog>
 <script>
 "use strict";
-const LS_KEY = "spendly.local.v1";
+const LS_KEY = "spendly.local.v2";
+const LS_KEY_V1 = "spendly.local.v1";
+const LS_ENDPOINT = "spendly.endpoint";
+const LS_TOKEN = "spendly.token";
 const CATEGORIES_OUT = ["食費","外食","日用品","お小遣い","交通","住居","光熱費","通信","医療","娯楽","ふるさと納税","保険","その他"];
 const CATEGORIES_IN  = ["給与","その他収入"];
 
-let localItems = loadLocal();
-let vedaItems = [];
-let viewYear, viewMonth; // 表示中の月
-{ const n = new Date(); viewYear = n.getFullYear(); viewMonth = n.getMonth(); }
-
-function loadLocal(){
-  try { const v = JSON.parse(localStorage.getItem(LS_KEY) || "[]"); return Array.isArray(v) ? v : []; }
-  catch(e){ return []; }
-}
-function saveLocal(){ localStorage.setItem(LS_KEY, JSON.stringify(localItems)); }
+function nowIso(){ return new Date().toISOString(); }
+function tsOf(x){ const t = Date.parse(x && x.updated_at || ""); return isNaN(t) ? 0 : t; }
+function normTs(s){ const t = Date.parse(s || ""); return isNaN(t) ? nowIso() : new Date(t).toISOString(); }
+function uid(){ return "l" + Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
 function yen(n){ return "¥" + Math.round(n).toLocaleString("ja-JP"); }
 function esc(s){ return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
-function uid(){ return "l" + Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
 
-async function loadVeda(){
-  try {
-    const res = await fetch("data.json?ts=" + Date.now(), {cache:"no-store"});
-    if (!res.ok) return;
-    const data = await res.json();
-    if (data && Array.isArray(data.items)) vedaItems = data.items;
-  } catch(e){ /* オフライン等ではヴェーダ記録なしで表示 */ }
+function migrateItem(x){
+  return {
+    id: String(x.id || uid()),
+    date: String(x.date || ""),
+    type: x.type === "in" ? "in" : "out",
+    amount: Math.abs(parseInt(x.amount, 10) || 0),
+    category: String(x.category || "その他"),
+    title: String(x.title || ""),
+    memo: String(x.memo || ""),
+    origin: x.origin === "veda" || x.source === "veda" ? "veda" : "local",
+    updated_at: x.updated_at ? normTs(x.updated_at) : nowIso(),
+    synced: !!x.synced,
+    deleted: !!x.deleted
+  };
 }
+function loadLocal(){
+  try {
+    const v2 = JSON.parse(localStorage.getItem(LS_KEY) || "null");
+    if (Array.isArray(v2)) return v2.map(migrateItem);
+    const v1 = JSON.parse(localStorage.getItem(LS_KEY_V1) || "null");
+    if (Array.isArray(v1)) return v1.map(migrateItem);
+  } catch(e){}
+  return [];
+}
+let items = loadLocal();
+function saveLocal(){ localStorage.setItem(LS_KEY, JSON.stringify(items)); }
+function visibleItems(){ return items.filter(x => !x.deleted); }
+function pendingCount(){ return items.filter(x => !x.synced).length; }
+
+let viewYear, viewMonth;
+{ const n = new Date(); viewYear = n.getFullYear(); viewMonth = n.getMonth(); }
 
 function monthItems(){
-  const all = [
-    ...vedaItems.map(x => ({...x, source:"veda", origin:"veda"})),
-    ...localItems.map(x => ({...x, source:"local", origin: x.origin || "local"}))
-  ];
-  return all.filter(x => {
+  return visibleItems().filter(x => {
     const d = new Date(x.date + "T00:00:00");
     return d.getFullYear() === viewYear && d.getMonth() === viewMonth;
-  }).sort((a,b) => a.date < b.date ? 1 : (a.date > b.date ? -1 : (b.id < a.id ? -1 : 1)));
+  }).sort((a,b) => a.date < b.date ? 1 : (a.date > b.date ? -1 : (tsOf(b) - tsOf(a))));
 }
 
 function render(){
   document.getElementById("monthLabel").textContent = viewYear + "年" + (viewMonth+1) + "月";
-  const items = monthItems();
+  const list = monthItems();
   let sumOut = 0, sumIn = 0; const cats = {};
-  for (const x of items){
-    const amt = Number(x.amount) || 0;
-    if (x.type === "in"){ sumIn += amt; }
-    else { sumOut += amt; cats[x.category] = (cats[x.category] || 0) + amt; }
+  for (const x of list){
+    if (x.type === "in"){ sumIn += x.amount; }
+    else { sumOut += x.amount; cats[x.category] = (cats[x.category] || 0) + x.amount; }
   }
   document.getElementById("sumOut").textContent = yen(sumOut);
   document.getElementById("sumIn").textContent  = yen(sumIn);
   const net = sumIn - sumOut;
   const netEl = document.getElementById("sumNet");
-  netEl.textContent = (net >= 0 ? "+" : "−") + yen(Math.abs(net)).slice(0);
+  netEl.textContent = (net >= 0 ? "+" : "−") + yen(Math.abs(net));
   netEl.className = "val " + (net >= 0 ? "in" : "out");
 
   const catEl = document.getElementById("catSummary");
@@ -215,9 +247,9 @@ function render(){
   }
 
   const listEl = document.getElementById("list");
-  if (!items.length){ listEl.innerHTML = '<div class="empty">この月の記録はありません</div>'; return; }
+  if (!list.length){ listEl.innerHTML = '<div class="empty">この月の記録はありません</div>'; renderSyncStatus(); return; }
   let html = "", lastDay = "";
-  for (const x of items){
+  for (const x of list){
     if (x.date !== lastDay){
       lastDay = x.date;
       const d = new Date(x.date + "T00:00:00");
@@ -225,20 +257,20 @@ function render(){
       html += '<div class="dayhead">' + (d.getMonth()+1) + "月" + d.getDate() + "日（" + w + "）</div>";
     }
     const isIn = x.type === "in";
-    const badge = x.origin === "veda"
+    let badge = x.origin === "veda"
       ? '<span class="badge">ヴェーダ記録</span>'
       : '<span class="badge local">自分</span>';
-    const edit = x.source === "local"
-      ? '<button class="iconbtn" data-edit="' + esc(x.id) + '">編集</button>' : "";
+    if (!x.synced) badge += '<span class="badge dirty">未送信</span>';
     html += '<div class="item"><div class="main">' +
       '<div class="title">' + esc(x.title) + badge + '</div>' +
       '<div class="meta">' + esc(x.category) + (x.memo ? "｜" + esc(x.memo) : "") + '</div></div>' +
       '<div class="amount ' + (isIn ? "in" : "out") + '">' + (isIn ? "+" : "−") + yen(x.amount) + '</div>' +
-      edit + '</div>';
+      '<button class="iconbtn" data-edit="' + esc(x.id) + '">編集</button></div>';
   }
   listEl.innerHTML = html;
   listEl.querySelectorAll("[data-edit]").forEach(b =>
     b.addEventListener("click", () => openEdit(b.getAttribute("data-edit"))));
+  renderSyncStatus();
 }
 
 document.getElementById("prevMonth").addEventListener("click", () => {
@@ -266,7 +298,7 @@ document.getElementById("segIn").addEventListener("click",  () => { editingType 
 function openEdit(id){
   const form = document.getElementById("editForm"); form.reset();
   if (id){
-    const x = localItems.find(v => v.id === id); if (!x) return;
+    const x = items.find(v => v.id === id && !v.deleted); if (!x) return;
     editingId = id; editingType = x.type === "in" ? "in" : "out";
     document.getElementById("editTitle").textContent = "記録を編集";
     document.getElementById("fDate").value = x.date;
@@ -291,8 +323,9 @@ document.getElementById("addBtn").addEventListener("click", () => openEdit(null)
 document.getElementById("cancelBtn").addEventListener("click", () => dlg.close());
 document.getElementById("deleteBtn").addEventListener("click", () => {
   if (!editingId) return;
-  localItems = localItems.filter(v => v.id !== editingId);
-  saveLocal(); dlg.close(); render();
+  const x = items.find(v => v.id === editingId);
+  if (x){ x.deleted = true; x.updated_at = nowIso(); x.synced = false; }
+  saveLocal(); dlg.close(); render(); syncNow();
 });
 document.getElementById("editForm").addEventListener("submit", (ev) => {
   ev.preventDefault();
@@ -303,20 +336,120 @@ document.getElementById("editForm").addEventListener("submit", (ev) => {
     amount: Math.abs(parseInt(document.getElementById("fAmount").value, 10) || 0),
     category: document.getElementById("fCategory").value,
     title: document.getElementById("fTitle").value.trim(),
-    memo: document.getElementById("fMemo").value.trim()
+    memo: document.getElementById("fMemo").value.trim(),
+    origin: "local",
+    updated_at: nowIso(), synced: false, deleted: false
   };
   if (!rec.date || !rec.amount || !rec.title) return;
-  if (editingId){ const i = localItems.findIndex(v => v.id === editingId); if (i >= 0) localItems[i] = rec; }
-  else localItems.push(rec);
+  if (editingId){
+    const i = items.findIndex(v => v.id === editingId);
+    if (i >= 0){ rec.origin = items[i].origin; items[i] = rec; }
+  } else items.push(rec);
   saveLocal(); dlg.close();
   const d = new Date(rec.date + "T00:00:00");
   viewYear = d.getFullYear(); viewMonth = d.getMonth();
-  render();
+  render(); syncNow();
 });
+
+/* ---- 同期（Apps Script受け口） ---- */
+const cfgEndpointEl = document.getElementById("cfgEndpoint");
+const cfgTokenEl = document.getElementById("cfgToken");
+cfgEndpointEl.value = localStorage.getItem(LS_ENDPOINT) || "";
+cfgTokenEl.value = localStorage.getItem(LS_TOKEN) || "";
+function endpoint(){ return (localStorage.getItem(LS_ENDPOINT) || "").trim(); }
+function token(){ return (localStorage.getItem(LS_TOKEN) || "").trim(); }
+let lastSyncMsg = "";
+function renderSyncStatus(){
+  const el = document.getElementById("syncStatus");
+  if (!endpoint()){ el.textContent = "同期：未設定"; return; }
+  const p = pendingCount();
+  el.textContent = "同期：" + (lastSyncMsg || "待機中") + (p ? "｜未送信 " + p + "件" : "｜未送信 0件");
+}
+document.getElementById("cfgSave").addEventListener("click", () => {
+  localStorage.setItem(LS_ENDPOINT, cfgEndpointEl.value.trim());
+  localStorage.setItem(LS_TOKEN, cfgTokenEl.value.trim());
+  lastSyncMsg = "設定を保存しました";
+  renderSyncStatus(); syncNow();
+});
+document.getElementById("syncNowBtn").addEventListener("click", () => syncNow());
+
+let syncing = false;
+async function syncNow(){
+  if (syncing) return;
+  if (!endpoint()){ renderSyncStatus(); return; }
+  if (!navigator.onLine){ lastSyncMsg = "オフラインのため保留"; renderSyncStatus(); return; }
+  syncing = true;
+  try {
+    // 1) 未送信分を送る
+    const dirty = items.filter(x => !x.synced);
+    if (dirty.length){
+      const ops = dirty.map(x => x.deleted
+        ? { op: "delete", id: x.id, updated_at: x.updated_at }
+        : { op: "upsert", item: {
+            id: x.id, date: x.date, type: x.type, category: x.category,
+            amount: x.amount, title: x.title, memo: x.memo, origin: x.origin,
+            updated_at: x.updated_at } });
+      const res = await fetch(endpoint(), {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({ token: token(), ops: ops })
+      });
+      const data = await res.json();
+      if (!data || !data.ok) throw new Error((data && data.error) || "送信に失敗");
+      const sentIds = new Set(dirty.map(x => x.id));
+      items = items.filter(x => !(x.deleted && sentIds.has(x.id)));
+      for (const x of items) if (sentIds.has(x.id)) x.synced = true;
+      saveLocal();
+    }
+    // 2) シート側の全件を取り込んで照合する
+    const gres = await fetch(endpoint() + "?token=" + encodeURIComponent(token()));
+    const gdata = await gres.json();
+    if (!gdata || !gdata.ok) throw new Error((gdata && gdata.error) || "受信に失敗");
+    mergeFromServer(Array.isArray(gdata.items) ? gdata.items : []);
+    saveLocal();
+    const n = new Date();
+    lastSyncMsg = "同期済み（" + n.getHours() + ":" + String(n.getMinutes()).padStart(2,"0") + "）";
+  } catch(e){
+    lastSyncMsg = "同期できませんでした（次回自動で再送します）";
+  } finally {
+    syncing = false;
+    render();
+  }
+}
+function mergeFromServer(serverItems){
+  const serverById = new Map(serverItems.map(s => [String(s.id), s]));
+  const next = [];
+  const localIds = new Set();
+  for (const l of items){
+    localIds.add(l.id);
+    const s = serverById.get(l.id);
+    if (!s){
+      // サーバに無い：未送信のものは残す。送信済みなのに無い場合は、他所で消えたものとして除く
+      if (!l.synced) next.push(l);
+      continue;
+    }
+    if (s.deleted){
+      // サーバ側で削除済み。ローカルに新しい未送信の編集がある場合だけ残す
+      if (!l.synced && !l.deleted && tsOf(l) > tsOf(s)) next.push(l);
+      continue;
+    }
+    if (l.synced || tsOf(s) >= tsOf(l)){
+      next.push({ ...migrateItem(s), synced: true, deleted: false });
+    } else {
+      next.push(l); // ローカルの方が新しい未送信編集
+    }
+  }
+  for (const s of serverItems){
+    if (localIds.has(String(s.id)) || s.deleted) continue;
+    next.push({ ...migrateItem(s), synced: true, deleted: false });
+  }
+  items = next;
+}
+window.addEventListener("online", () => syncNow());
 
 /* ---- データ管理 ---- */
 document.getElementById("exportBtn").addEventListener("click", () => {
-  const blob = new Blob([JSON.stringify({app:"spendly", version:1, items:localItems}, null, 2)],
+  const blob = new Blob([JSON.stringify({app:"spendly", version:2, items: visibleItems()}, null, 2)],
     {type:"application/json"});
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
@@ -331,28 +464,23 @@ importFile.addEventListener("change", async () => {
     const data = JSON.parse(await f.text());
     const incoming = Array.isArray(data) ? data : (data && data.items);
     if (!Array.isArray(incoming)) throw new Error("形式が違います");
-    const known = new Set(localItems.map(v => v.id));
+    const known = new Set(items.map(v => v.id));
     let added = 0, skipped = 0;
     for (const it of incoming){
       if (!it || !it.id || !it.date || !(Number(it.amount) > 0) || !it.title){ skipped++; continue; }
-      if (known.has(it.id)){ skipped++; continue; }
-      localItems.push({
-        id: String(it.id), date: String(it.date),
-        type: it.type === "in" ? "in" : "out",
-        amount: Math.abs(parseInt(it.amount, 10) || 0),
-        category: String(it.category || "その他"),
-        title: String(it.title), memo: String(it.memo || ""),
-        origin: it.origin === "veda" || it.source === "veda" ? "veda" : "local"
-      });
-      known.add(it.id); added++;
+      if (known.has(String(it.id))){ skipped++; continue; }
+      const rec = migrateItem(it); rec.synced = false;
+      items.push(rec); known.add(rec.id); added++;
     }
-    saveLocal(); render();
+    saveLocal(); render(); syncNow();
     alert("取り込み完了： " + added + "件を追加" + (skipped ? "（" + skipped + "件は重複・形式違いのためスキップ）" : ""));
   } catch(e){ alert("読み込めませんでした：" + e.message); }
   importFile.value = "";
 });
 
-(async () => { render(); await loadVeda(); render(); })();
+saveLocal();
+render();
+syncNow();
 </script>
 </body>
 </html>
