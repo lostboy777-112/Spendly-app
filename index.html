@@ -85,7 +85,7 @@
 <div class="wrap">
   <header>
     <h1>Spendly</h1>
-    <span class="sub">家計簿｜自分の入力はこの端末に保存、ヴェーダ記録は data.json から読み込み</span>
+    <span class="sub">家計簿｜データはすべてこの端末に保存されます</span>
   </header>
 
   <section class="card">
@@ -113,7 +113,7 @@
 
   <section class="card">
     <h2>データ管理</h2>
-    <p class="small">自分の入力データはこのブラウザ（localStorage）にのみ保存されます。機種変更やブラウザのデータ消去に備えて、ときどき書き出してください。「ヴェーダ記録」はリポジトリの data.json を読み込む表示専用データです。</p>
+    <p class="small">データはすべてこのブラウザ（localStorage）にのみ保存され、サーバには送信されません。機種変更やブラウザのデータ消去に備えて、ときどき書き出してください。「ヴェーダ記録」は、ヴェーダから渡されるJSONファイルを「読み込む」で取り込むデータです（既存の記録と重複するものは自動でスキップされます）。</p>
     <div class="row2">
       <button class="btn" id="exportBtn">自分のデータを書き出す</button>
       <button class="btn" id="importBtn">読み込む</button>
@@ -177,8 +177,8 @@ async function loadVeda(){
 
 function monthItems(){
   const all = [
-    ...vedaItems.map(x => ({...x, source:"veda"})),
-    ...localItems.map(x => ({...x, source:"local"}))
+    ...vedaItems.map(x => ({...x, source:"veda", origin:"veda"})),
+    ...localItems.map(x => ({...x, source:"local", origin: x.origin || "local"}))
   ];
   return all.filter(x => {
     const d = new Date(x.date + "T00:00:00");
@@ -225,7 +225,7 @@ function render(){
       html += '<div class="dayhead">' + (d.getMonth()+1) + "月" + d.getDate() + "日（" + w + "）</div>";
     }
     const isIn = x.type === "in";
-    const badge = x.source === "veda"
+    const badge = x.origin === "veda"
       ? '<span class="badge">ヴェーダ記録</span>'
       : '<span class="badge local">自分</span>';
     const edit = x.source === "local"
@@ -329,9 +329,25 @@ importFile.addEventListener("change", async () => {
   const f = importFile.files[0]; if (!f) return;
   try {
     const data = JSON.parse(await f.text());
-    if (!data || !Array.isArray(data.items)) throw new Error("形式が違います");
-    localItems = data.items; saveLocal(); render();
-    alert("読み込みました（" + localItems.length + "件）");
+    const incoming = Array.isArray(data) ? data : (data && data.items);
+    if (!Array.isArray(incoming)) throw new Error("形式が違います");
+    const known = new Set(localItems.map(v => v.id));
+    let added = 0, skipped = 0;
+    for (const it of incoming){
+      if (!it || !it.id || !it.date || !(Number(it.amount) > 0) || !it.title){ skipped++; continue; }
+      if (known.has(it.id)){ skipped++; continue; }
+      localItems.push({
+        id: String(it.id), date: String(it.date),
+        type: it.type === "in" ? "in" : "out",
+        amount: Math.abs(parseInt(it.amount, 10) || 0),
+        category: String(it.category || "その他"),
+        title: String(it.title), memo: String(it.memo || ""),
+        origin: it.origin === "veda" || it.source === "veda" ? "veda" : "local"
+      });
+      known.add(it.id); added++;
+    }
+    saveLocal(); render();
+    alert("取り込み完了： " + added + "件を追加" + (skipped ? "（" + skipped + "件は重複・形式違いのためスキップ）" : ""));
   } catch(e){ alert("読み込めませんでした：" + e.message); }
   importFile.value = "";
 });
