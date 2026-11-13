@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Spendly｜家計簿</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#ffffff; --text:#1c2330; --muted:#6b7280;
+    --line:#e5e7eb; --accent:#2563eb; --accent-soft:#e8effc;
+    --out:#dc2626; --in:#059669; --veda:#7c3aed; --veda-soft:#f1eafd;
+    --radius:14px;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#111418; --card:#1b1f26; --text:#e8eaee; --muted:#9aa3af;
+      --line:#2b3038; --accent:#5b8cff; --accent-soft:#22304d;
+      --out:#f87171; --in:#34d399; --veda:#b79cff; --veda-soft:#2c2350; }
+  }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body{ margin:0; font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;
+    background:var(--bg); color:var(--text); font-size:16px; line-height:1.5; }
+  .wrap{ max-width:640px; margin:0 auto; padding:16px 14px 90px; }
+  header{ display:flex; align-items:baseline; gap:10px; margin:6px 2px 14px; }
+  header h1{ font-size:22px; margin:0; letter-spacing:.02em; }
+  header .sub{ color:var(--muted); font-size:12px; }
+  .card{ background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+    padding:14px; margin-bottom:12px; }
+  .monthbar{ display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .monthbar .m{ font-size:18px; font-weight:700; }
+  .navbtn{ border:1px solid var(--line); background:var(--card); color:var(--text);
+    border-radius:10px; padding:8px 14px; font-size:15px; cursor:pointer; min-height:44px; }
+  .navbtn:active{ background:var(--accent-soft); }
+  .totals{ display:flex; gap:10px; margin-top:12px; }
+  .totals .t{ flex:1; text-align:center; }
+  .totals .lbl{ font-size:12px; color:var(--muted); }
+  .totals .val{ font-size:19px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .val.out{ color:var(--out); } .val.in{ color:var(--in); }
+  h2{ font-size:14px; margin:2px 0 10px; color:var(--muted); font-weight:600; }
+  .catrow{ display:flex; align-items:center; gap:8px; margin:7px 0; font-size:14px; }
+  .catrow .name{ width:86px; flex:none; }
+  .catrow .bar{ flex:1; height:8px; background:var(--line); border-radius:99px; overflow:hidden; }
+  .catrow .bar i{ display:block; height:100%; background:var(--accent); border-radius:99px; }
+  .catrow .amt{ width:92px; flex:none; text-align:right; font-variant-numeric:tabular-nums; }
+  .item{ display:flex; gap:10px; padding:11px 2px; border-bottom:1px solid var(--line); align-items:flex-start; }
+  .item:last-child{ border-bottom:none; }
+  .item .main{ flex:1; min-width:0; }
+  .item .title{ font-weight:600; font-size:15px; word-break:break-word; }
+  .item .meta{ font-size:12px; color:var(--muted); margin-top:1px; word-break:break-word; }
+  .item .amount{ font-weight:700; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .amount.out{ color:var(--out); } .amount.in{ color:var(--in); }
+  .badge{ display:inline-block; font-size:10.5px; padding:1px 7px; border-radius:99px;
+    background:var(--veda-soft); color:var(--veda); font-weight:700; vertical-align:1px; margin-left:6px; }
+  .badge.local{ background:var(--accent-soft); color:var(--accent); }
+  .dayhead{ font-size:13px; color:var(--muted); font-weight:700; margin:14px 2px 2px; }
+  .iconbtn{ border:none; background:none; color:var(--muted); font-size:13px; cursor:pointer;
+    padding:6px 4px; min-height:32px; }
+  .fab{ position:fixed; right:18px; bottom:calc(18px + env(safe-area-inset-bottom)); z-index:20;
+    width:58px; height:58px; border-radius:50%; border:none; background:var(--accent); color:#fff;
+    font-size:28px; box-shadow:0 6px 18px rgba(0,0,0,.25); cursor:pointer; }
+  dialog{ border:none; border-radius:16px; padding:0; width:min(94vw,480px);
+    background:var(--card); color:var(--text); }
+  dialog::backdrop{ background:rgba(0,0,0,.45); }
+  .sheet{ padding:18px; }
+  .sheet h3{ margin:0 0 12px; font-size:17px; }
+  .frow{ margin-bottom:12px; }
+  .frow label{ display:block; font-size:12px; color:var(--muted); margin-bottom:4px; }
+  .frow input,.frow select,.frow textarea{ width:100%; font-size:16px; padding:11px;
+    border:1px solid var(--line); border-radius:10px; background:var(--card); color:var(--text); }
+  .seg{ display:flex; gap:8px; }
+  .seg button{ flex:1; padding:11px; border-radius:10px; border:1px solid var(--line);
+    background:var(--card); color:var(--text); font-size:15px; cursor:pointer; min-height:48px; }
+  .seg button.on-out{ background:var(--out); border-color:var(--out); color:#fff; }
+  .seg button.on-in{ background:var(--in); border-color:var(--in); color:#fff; }
+  .sheet .actions{ display:flex; gap:8px; margin-top:16px; }
+  .btn{ flex:1; padding:13px; border-radius:10px; border:1px solid var(--line);
+    background:var(--card); color:var(--text); font-size:15px; cursor:pointer; min-height:50px; }
+  .btn.primary{ background:var(--accent); border-color:var(--accent); color:#fff; font-weight:700; }
+  .btn.danger{ color:var(--out); }
+  .small{ font-size:12px; color:var(--muted); }
+  .row2{ display:flex; gap:8px; } .row2 .btn{ flex:1; }
+  .empty{ text-align:center; color:var(--muted); padding:22px 0; font-size:14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Spendly</h1>
+    <span class="sub">家計簿｜自分の入力はこの端末に保存、ヴェーダ記録は data.json から読み込み</span>
+  </header>
+
+  <section class="card">
+    <div class="monthbar">
+      <button class="navbtn" id="prevMonth" aria-label="前月">‹ 前月</button>
+      <div class="m" id="monthLabel">----年--月</div>
+      <button class="navbtn" id="nextMonth" aria-label="翌月">翌月 ›</button>
+    </div>
+    <div class="totals">
+      <div class="t"><div class="lbl">支出</div><div class="val out" id="sumOut">¥0</div></div>
+      <div class="t"><div class="lbl">収入</div><div class="val in" id="sumIn">¥0</div></div>
+      <div class="t"><div class="lbl">収支</div><div class="val" id="sumNet">¥0</div></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>カテゴリ別（支出）</h2>
+    <div id="catSummary"><div class="empty">この月の支出はまだありません</div></div>
+  </section>
+
+  <section class="card">
+    <h2>明細</h2>
+    <div id="list"><div class="empty">読み込み中…</div></div>
+  </section>
+
+  <section class="card">
+    <h2>データ管理</h2>
+    <p class="small">自分の入力データはこのブラウザ（localStorage）にのみ保存されます。機種変更やブラウザのデータ消去に備えて、ときどき書き出してください。「ヴェーダ記録」はリポジトリの data.json を読み込む表示専用データです。</p>
+    <div class="row2">
+      <button class="btn" id="exportBtn">自分のデータを書き出す</button>
+      <button class="btn" id="importBtn">読み込む</button>
+    </div>
+    <input type="file" id="importFile" accept="application/json" hidden>
+  </section>
+</div>
+
+<button class="fab" id="addBtn" aria-label="追加">＋</button>
+
+<dialog id="editDialog">
+  <form method="dialog" class="sheet" id="editForm">
+    <h3 id="editTitle">記録を追加</h3>
+    <div class="frow">
+      <label>種別</label>
+      <div class="seg">
+        <button type="button" id="segOut">支出</button>
+        <button type="button" id="segIn">収入</button>
+      </div>
+    </div>
+    <div class="frow"><label>日付</label><input type="date" id="fDate" required></div>
+    <div class="frow"><label>金額（円）</label><input type="number" id="fAmount" inputmode="numeric" min="1" step="1" required placeholder="1000"></div>
+    <div class="frow"><label>カテゴリ</label><select id="fCategory"></select></div>
+    <div class="frow"><label>内容</label><input type="text" id="fTitle" placeholder="例：業務スーパー" required></div>
+    <div class="frow"><label>メモ（任意）</label><textarea id="fMemo" rows="2"></textarea></div>
+    <div class="actions">
+      <button type="button" class="btn danger" id="deleteBtn" hidden>削除</button>
+      <button type="button" class="btn" id="cancelBtn">キャンセル</button>
+      <button type="submit" class="btn primary">保存</button>
+    </div>
+  </form>
+</dialog>
+<script>
+"use strict";
+const LS_KEY = "spendly.local.v1";
+const CATEGORIES_OUT = ["食費","外食","日用品","お小遣い","交通","住居","光熱費","通信","医療","娯楽","ふるさと納税","保険","その他"];
+const CATEGORIES_IN  = ["給与","その他収入"];
+
+let localItems = loadLocal();
+let vedaItems = [];
+let viewYear, viewMonth; // 表示中の月
+{ const n = new Date(); viewYear = n.getFullYear(); viewMonth = n.getMonth(); }
+
+function loadLocal(){
+  try { const v = JSON.parse(localStorage.getItem(LS_KEY) || "[]"); return Array.isArray(v) ? v : []; }
+  catch(e){ return []; }
+}
+function saveLocal(){ localStorage.setItem(LS_KEY, JSON.stringify(localItems)); }
+function yen(n){ return "¥" + Math.round(n).toLocaleString("ja-JP"); }
+function esc(s){ return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+function uid(){ return "l" + Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
+
+async function loadVeda(){
+  try {
+    const res = await fetch("data.json?ts=" + Date.now(), {cache:"no-store"});
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data && Array.isArray(data.items)) vedaItems = data.items;
+  } catch(e){ /* オフライン等ではヴェーダ記録なしで表示 */ }
+}
+
+function monthItems(){
+  const all = [
+    ...vedaItems.map(x => ({...x, source:"veda"})),
+    ...localItems.map(x => ({...x, source:"local"}))
+  ];
+  return all.filter(x => {
+    const d = new Date(x.date + "T00:00:00");
+    return d.getFullYear() === viewYear && d.getMonth() === viewMonth;
+  }).sort((a,b) => a.date < b.date ? 1 : (a.date > b.date ? -1 : (b.id < a.id ? -1 : 1)));
+}
+
+function render(){
+  document.getElementById("monthLabel").textContent = viewYear + "年" + (viewMonth+1) + "月";
+  const items = monthItems();
+  let sumOut = 0, sumIn = 0; const cats = {};
+  for (const x of items){
+    const amt = Number(x.amount) || 0;
+    if (x.type === "in"){ sumIn += amt; }
+    else { sumOut += amt; cats[x.category] = (cats[x.category] || 0) + amt; }
+  }
+  document.getElementById("sumOut").textContent = yen(sumOut);
+  document.getElementById("sumIn").textContent  = yen(sumIn);
+  const net = sumIn - sumOut;
+  const netEl = document.getElementById("sumNet");
+  netEl.textContent = (net >= 0 ? "+" : "−") + yen(Math.abs(net)).slice(0);
+  netEl.className = "val " + (net >= 0 ? "in" : "out");
+
+  const catEl = document.getElementById("catSummary");
+  const catList = Object.entries(cats).sort((a,b) => b[1]-a[1]);
+  if (!catList.length){ catEl.innerHTML = '<div class="empty">この月の支出はまだありません</div>'; }
+  else {
+    catEl.innerHTML = catList.map(([name, amt]) => {
+      const pct = sumOut ? Math.max(2, Math.round(amt / sumOut * 100)) : 0;
+      return '<div class="catrow"><div class="name">' + esc(name) + '</div>' +
+        '<div class="bar"><i style="width:' + pct + '%"></i></div>' +
+        '<div class="amt">' + yen(amt) + '</div></div>';
+    }).join("");
+  }
+
+  const listEl = document.getElementById("list");
+  if (!items.length){ listEl.innerHTML = '<div class="empty">この月の記録はありません</div>'; return; }
+  let html = "", lastDay = "";
+  for (const x of items){
+    if (x.date !== lastDay){
+      lastDay = x.date;
+      const d = new Date(x.date + "T00:00:00");
+      const w = ["日","月","火","水","木","金","土"][d.getDay()];
+      html += '<div class="dayhead">' + (d.getMonth()+1) + "月" + d.getDate() + "日（" + w + "）</div>";
+    }
+    const isIn = x.type === "in";
+    const badge = x.source === "veda"
+      ? '<span class="badge">ヴェーダ記録</span>'
+      : '<span class="badge local">自分</span>';
+    const edit = x.source === "local"
+      ? '<button class="iconbtn" data-edit="' + esc(x.id) + '">編集</button>' : "";
+    html += '<div class="item"><div class="main">' +
+      '<div class="title">' + esc(x.title) + badge + '</div>' +
+      '<div class="meta">' + esc(x.category) + (x.memo ? "｜" + esc(x.memo) : "") + '</div></div>' +
+      '<div class="amount ' + (isIn ? "in" : "out") + '">' + (isIn ? "+" : "−") + yen(x.amount) + '</div>' +
+      edit + '</div>';
+  }
+  listEl.innerHTML = html;
+  listEl.querySelectorAll("[data-edit]").forEach(b =>
+    b.addEventListener("click", () => openEdit(b.getAttribute("data-edit"))));
+}
+
+document.getElementById("prevMonth").addEventListener("click", () => {
+  viewMonth--; if (viewMonth < 0){ viewMonth = 11; viewYear--; } render();
+});
+document.getElementById("nextMonth").addEventListener("click", () => {
+  viewMonth++; if (viewMonth > 11){ viewMonth = 0; viewYear++; } render();
+});
+
+/* ---- 編集ダイアログ ---- */
+const dlg = document.getElementById("editDialog");
+let editingId = null, editingType = "out";
+function fillCategories(){
+  const sel = document.getElementById("fCategory");
+  const cats = editingType === "in" ? CATEGORIES_IN : CATEGORIES_OUT;
+  sel.innerHTML = cats.map(c => '<option value="' + esc(c) + '">' + esc(c) + "</option>").join("");
+}
+function paintSeg(){
+  document.getElementById("segOut").className = editingType === "out" ? "on-out" : "";
+  document.getElementById("segIn").className  = editingType === "in"  ? "on-in"  : "";
+}
+document.getElementById("segOut").addEventListener("click", () => { editingType = "out"; paintSeg(); fillCategories(); });
+document.getElementById("segIn").addEventListener("click",  () => { editingType = "in";  paintSeg(); fillCategories(); });
+
+function openEdit(id){
+  const form = document.getElementById("editForm"); form.reset();
+  if (id){
+    const x = localItems.find(v => v.id === id); if (!x) return;
+    editingId = id; editingType = x.type === "in" ? "in" : "out";
+    document.getElementById("editTitle").textContent = "記録を編集";
+    document.getElementById("fDate").value = x.date;
+    document.getElementById("fAmount").value = x.amount;
+    document.getElementById("fTitle").value = x.title;
+    document.getElementById("fMemo").value = x.memo || "";
+    document.getElementById("deleteBtn").hidden = false;
+    paintSeg(); fillCategories();
+    document.getElementById("fCategory").value = x.category;
+  } else {
+    editingId = null; editingType = "out";
+    document.getElementById("editTitle").textContent = "記録を追加";
+    const n = new Date();
+    document.getElementById("fDate").value =
+      n.getFullYear() + "-" + String(n.getMonth()+1).padStart(2,"0") + "-" + String(n.getDate()).padStart(2,"0");
+    document.getElementById("deleteBtn").hidden = true;
+    paintSeg(); fillCategories();
+  }
+  dlg.showModal();
+}
+document.getElementById("addBtn").addEventListener("click", () => openEdit(null));
+document.getElementById("cancelBtn").addEventListener("click", () => dlg.close());
+document.getElementById("deleteBtn").addEventListener("click", () => {
+  if (!editingId) return;
+  localItems = localItems.filter(v => v.id !== editingId);
+  saveLocal(); dlg.close(); render();
+});
+document.getElementById("editForm").addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  const rec = {
+    id: editingId || uid(),
+    date: document.getElementById("fDate").value,
+    type: editingType,
+    amount: Math.abs(parseInt(document.getElementById("fAmount").value, 10) || 0),
+    category: document.getElementById("fCategory").value,
+    title: document.getElementById("fTitle").value.trim(),
+    memo: document.getElementById("fMemo").value.trim()
+  };
+  if (!rec.date || !rec.amount || !rec.title) return;
+  if (editingId){ const i = localItems.findIndex(v => v.id === editingId); if (i >= 0) localItems[i] = rec; }
+  else localItems.push(rec);
+  saveLocal(); dlg.close();
+  const d = new Date(rec.date + "T00:00:00");
+  viewYear = d.getFullYear(); viewMonth = d.getMonth();
+  render();
+});
+
+/* ---- データ管理 ---- */
+document.getElementById("exportBtn").addEventListener("click", () => {
+  const blob = new Blob([JSON.stringify({app:"spendly", version:1, items:localItems}, null, 2)],
+    {type:"application/json"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "spendly-local-backup.json";
+  a.click(); URL.revokeObjectURL(a.href);
+});
+const importFile = document.getElementById("importFile");
+document.getElementById("importBtn").addEventListener("click", () => importFile.click());
+importFile.addEventListener("change", async () => {
+  const f = importFile.files[0]; if (!f) return;
+  try {
+    const data = JSON.parse(await f.text());
+    if (!data || !Array.isArray(data.items)) throw new Error("形式が違います");
+    localItems = data.items; saveLocal(); render();
+    alert("読み込みました（" + localItems.length + "件）");
+  } catch(e){ alert("読み込めませんでした：" + e.message); }
+  importFile.value = "";
+});
+
+(async () => { render(); await loadVeda(); render(); })();
+</script>
+</body>
+</html>
